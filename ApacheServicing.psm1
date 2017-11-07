@@ -30,12 +30,26 @@ function Get-ApacheRunningConfig {
     }
 
 function Get-ApacheConfigurationPath {
-    $RunConfig = Get-ApacheConfigurationPath
+
+    #https://wiki.apache.org/httpd/DistrosDefaultLayout
+    $ApacheDistroSpecificConfPath = (
+    "/usr/local/apache2/conf/httpd.conf",
+    "/etc/apache2/apache2.conf",
+    "/etc/httpd/httpd.conf",
+    "/etc/apache2/httpd.conf",
+    "/etc/httpd/conf/httpd.conf",
+    "/usr/pkg/etc/httpd/httpd.conf",
+    "/usr/local/etc/apache22/httpd.conf",
+    "/usr/local/etc/apache2/httpd.conf",
+    "/var/www/conf/httpd.conf",
+    "/etc/apache2/httpd2.conf")
+
+    $RunConfig = Get-ApacheRunningConfig
     $Apache.config = "" | select httpdconf, vdir
     $Apache.httpdconf = $RunConfig.'ServerRoot' + "/conf/httpd.conf"
     $Apache.vdir = $RunConfig.'ServerRoot' + '/conf.d/'
     }
-
+    
 function New-ApacheVirtualHostConfiguration {
 [CmdletBinding()]
 param (
@@ -52,27 +66,46 @@ param (
         [Parameter(Mandatory=$False)]
     [string]$ServerAdmin = 'webservices@localhost',
         [Parameter(Mandatory=$False)]
-    [string]$LogPath = '/var/log/httpd',
+    [string]$LogPath,
         [Parameter(Mandatory=$False)]
-    [string[]]$Directory 
+    [string[]]$Directory,
+        [Parameter(Mandatory=$False)]
+    [string[]]$CustomOptions
     )
+    if (-not ($LogPath)) {
+        try {
+            $RunningConfig = Get-ApacheRunningConfig
+            $TestingPath = ( $RunningConfig.'Main ErrorLog' -replace "(.+\/).+$",'$1' )
+            if (Test-Path $TestingPath -PathType Container ) {
+                $LogPath = $TestingPath
+                } #end if 
+            }
+        catch {
+            "Couldn't get errorlog path from running config" | Write-Warning
+            }
+        } #end if logpath
 
-
-
-
-
-$LogPath = $LogPath -replace "\/$"
 $vHostConfig = @"
 <VirtualHost $($IP):$($Port)>
 ServerAdmin $ServerAdmin
 DocumentRoot "$DocumentRoot"
 ServerName $ServerName
-
+$( 
+    if ($LogPath) { 
+#remove trailing slash
+$LogPath = $LogPath -replace "\/$"
+@"
 ErrorLog "$LogPath/$ServerName-error_log"
 CustomLog "$LogPath/$ServerName-access_log" combined
+"@
+    }#end if logpath
+)
+$(  #
+    @($CustomOptions) | % {$_} 
+    )
 
-$(
-    @($Directory) | %{$_.ToString()}
+$(  #
+    @($Directory) | % {$_} 
     )
 
 </VirtualHost>
@@ -94,6 +127,10 @@ Servername directive - should be FQDN of your server
 .PARAMETER DocumentRoot
 DocumentRoot directive - location of web-site on your filesystem
 
+.PARAMETER LogPath
+Path where log files for virtual host will be stored. If parameter is not given, default location will be determined through call to running httpd instance (and logs directory should exist).
+If parameter is given it will be passed to configuration 'as is'
+
 .INPUTS
 None. You cannot pipe objects to this function
 
@@ -105,12 +142,11 @@ New-ApacheVirtualHostConfiguration -ServerName 'test1.domain.tld' -DocumentRoot 
 
 Generate simple Virtual Host configuration
 
-
 .EXAMPLE
 $dirs = @(
 New-ApacheDirectoryDirective -Directory '/data/www/dir1' -AllowOverride 'all'
 New-ApacheDirectoryDirective -Directory '/data/www/dir2' 
-New-ApacheDirectoryDirective -Directory '/data/www/dir3' -Options 'someopt'
+New-ApacheDirectoryDirective -Directory '/data/www/dir3' -Options 'IncludesNOEXEC'
 )
 New-ApacheVirtualHostConfiguration -ServerName 'test1.domain.tld' -DocumentRoot '/data/www' -Directory $dirs
 
@@ -132,19 +168,22 @@ function New-ApacheDirectoryDirective {
         [Parameter(Mandatory=$False)]
     [string]$AllowOverride = 'None',
         [Parameter(Mandatory=$False)]
-    [string]$Require = 'all granted'
+    [string]$Require = 'all granted',
+        [Parameter(Mandatory=$False)]
+    [string[]]$CustomOptions
     )
-    $Directory = @"
-
+$Directory = @"
+#start directory
 <Directory "$Directory">
 DirectoryIndex $DirectoryIndex
 Options $Options
 AllowOverride $AllowOverride
 Require $Require
+$( @($CustomOptions) | % {$_} )
 </Directory>
+#end directory 
 
 "@
-
     return $Directory
 
 <#
@@ -176,7 +215,7 @@ Generate Directory configuration
 $dirs = @(
 New-ApacheDirectoryDirective -Directory '/data/www/dir1' -AllowOverride 'all'
 New-ApacheDirectoryDirective -Directory '/data/www/dir2' 
-New-ApacheDirectoryDirective -Directory '/data/www/dir3' -Options 'someopt'
+New-ApacheDirectoryDirective -Directory '/data/www/dir3' -Options 'IncludesNOEXEC'
 )
 New-ApacheVirtualHostConfiguration -ServerName 'test1.domain.tld' -DocumentRoot '/data/www' -Directory $dirs
 
@@ -185,3 +224,45 @@ Generate Virtual Host with additional Directory blocks
 #>
 
 }#end function 
+
+function Test-ApacheConfiguration {
+    $ApacheOutput = httpd -t 2>&1
+    if ($ApacheOutput -match 'Syntax OK') {
+        $true
+        If (@($ApacheOutput).Count -gt 1 ) {
+            $ApacheOutput.Exception.Message | Write-Warning
+            }
+        } 
+        else {
+        $false
+        $ApacheOutput.Exception.Message | Write-Warning
+        }
+
+<#
+.SYNOPSIS 
+Test httpd/apache2 configuration
+
+.DESCRIPTION
+Invoke Apache HTTP Daemon built-in configuration test.
+
+.INPUTS
+None. You cannot pipe objects to this function.
+
+.OUTPUTS
+Boolean value corresponding to state of configuration.
+All warnings and errors will be reported to Warnings channel.
+
+.EXAMPLE
+Test-ApacheConfiguration
+
+Get test result
+
+.EXAMPLE
+If (Test-ApacheConfiguration) { "Everything is OK!"} else { "Errors in configuration!"}
+Use coding and algorithms to determine script flow!
+
+#>
+
+    } #end funct
+
+New-Alias Get-ApacheConfigurationTest Test-ApacheConfiguration
