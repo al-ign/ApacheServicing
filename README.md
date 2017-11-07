@@ -5,12 +5,12 @@ This module was ad-hoc written to create httpd virtual-host configurations param
 Of course, it didn't stop after that...
 
 Currently available functions:
-Get-ApacheConfigurationPath
-Get-ApacheRunningConfig
-New-ApacheDirectoryDirective
-New-ApacheVirtualHostConfiguration
-Test-ApacheConfiguration
-Get-ApacheConfigurationTest
+ Get-ApacheConfigurationPath
+ Get-ApacheRunningConfig
+ New-ApacheDirectoryDirective
+ New-ApacheVirtualHostConfiguration
+ Test-ApacheConfiguration
+ Get-ApacheConfigurationTest
 
 Usage example:
 $dirs = @(
